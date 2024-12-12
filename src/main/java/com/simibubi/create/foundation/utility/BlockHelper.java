@@ -1,9 +1,11 @@
 package com.simibubi.create.foundation.utility;
 
+import java.util.UUID;
 import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
+import com.mojang.authlib.GameProfile;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.AllTags.AllBlockTags;
 import com.simibubi.create.compat.Mods;
@@ -53,6 +55,7 @@ import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Material;
 import net.minecraftforge.common.IPlantable;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.level.BlockEvent;
 
 public class BlockHelper {
@@ -162,32 +165,46 @@ public class BlockHelper {
 		destroyBlockAs(world, pos, null, ItemStack.EMPTY, effectChance, droppedItemCallback);
 	}
 
+	public static final UUID BLOCK_BREAKER = UUID.randomUUID();
+
 	public static void destroyBlockAs(Level world, BlockPos pos, @Nullable Player player, ItemStack usedTool,
 		float effectChance, Consumer<ItemStack> droppedItemCallback) {
 		FluidState fluidState = world.getFluidState(pos);
 		BlockState state = world.getBlockState(pos);
-		
+
 		if (world.random.nextFloat() < effectChance)
 			world.levelEvent(2001, pos, Block.getId(state));
 		BlockEntity blockEntity = state.hasBlockEntity() ? world.getBlockEntity(pos) : null;
-		
-		if (player != null) {
-			BlockEvent.BreakEvent event = new BlockEvent.BreakEvent(world, pos, state, player);
-			MinecraftForge.EVENT_BUS.post(event);
-			if (event.isCanceled())
-				return;
 
-			if (event.getExpToDrop() > 0 && world instanceof ServerLevel)
-				state.getBlock()
-					.popExperience((ServerLevel) world, pos, event.getExpToDrop());
+		// if the player is null, a fake player needs to be made for the block break event!
+		// this is to allow ftb to protect block breaks
+		// the below change is only needed on the server side.
+		// in the future, all contraptions/block breakers need to have an owner player assigned to them.
+		// player should only be null if the owner is offline.
+		// adding a config to ftb chunks to only allow fake player block breaks in force loaded chunks.
+		// - 1whohears
 
+		boolean notFake = player != null;
+		if (player == null && world instanceof ServerLevel serverLevel) {
+			player = new FakePlayer(serverLevel, new GameProfile(BLOCK_BREAKER, "create_block_helper_destroy"));
+		}
+
+		BlockEvent.BreakEvent event = new BlockEvent.BreakEvent(world, pos, state, player);
+		MinecraftForge.EVENT_BUS.post(event);
+		if (event.isCanceled())
+			return;
+
+		if (event.getExpToDrop() > 0 && world instanceof ServerLevel)
+			state.getBlock().popExperience((ServerLevel) world, pos, event.getExpToDrop());
+
+		if (notFake) {
 			usedTool.mineBlock(world, state, pos, player);
 			player.awardStat(Stats.BLOCK_MINED.get(state.getBlock()));
 		}
 
 		if (world instanceof ServerLevel && world.getGameRules()
 			.getBoolean(GameRules.RULE_DOBLOCKDROPS) && !world.restoringBlockSnapshots
-			&& (player == null || !player.isCreative())) {
+			&& (!notFake || !player.isCreative())) {
 			for (ItemStack itemStack : Block.getDrops(state, (ServerLevel) world, pos, blockEntity, player, usedTool))
 				droppedItemCallback.accept(itemStack);
 
@@ -207,7 +224,7 @@ public class BlockHelper {
 
 			state.spawnAfterBreak((ServerLevel) world, pos, ItemStack.EMPTY, true);
 		}
-		
+
 		world.setBlockAndUpdate(pos, fluidState.createLegacyBlock());
 	}
 
@@ -245,17 +262,17 @@ public class BlockHelper {
 		CompoundTag data = null;
 		if (blockEntity == null)
 			return data;
-		
+
 		if (AllBlockTags.SAFE_NBT.matches(blockState)) {
 			data = blockEntity.saveWithFullMetadata();
-		
+
 		} else if (blockEntity instanceof IPartialSafeNBT) {
 			data = new CompoundTag();
 			((IPartialSafeNBT) blockEntity).writeSafe(data);
-		
+
 		} else if (Mods.FRAMEDBLOCKS.contains(blockState.getBlock()))
 			data = FramedBlocksInSchematics.prepareBlockEntityData(blockState, blockEntity);
-		
+
 		return NBTProcessors.process(blockState, blockEntity, data, true);
 	}
 
