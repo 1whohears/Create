@@ -165,7 +165,9 @@ public class BlockHelper {
 		destroyBlockAs(world, pos, null, ItemStack.EMPTY, effectChance, droppedItemCallback);
 	}
 
-	public static final UUID BLOCK_BREAKER = UUID.randomUUID();
+	public static final UUID BLOCK_BREAKER_UUID = UUID.fromString("789b9a3e-2508-497c-a324-747ecdb926d0");
+	public static final GameProfile BLOCK_BREAKER_PROFILE = new GameProfile(BLOCK_BREAKER_UUID, "create_block_helper_destroy");
+	private static FakePlayer fakePlayer = null;
 
 	public static void destroyBlockAs(Level world, BlockPos pos, @Nullable Player player, ItemStack usedTool,
 		float effectChance, Consumer<ItemStack> droppedItemCallback) {
@@ -186,7 +188,8 @@ public class BlockHelper {
 
 		boolean notFake = player != null;
 		if (player == null && world instanceof ServerLevel serverLevel) {
-			player = new FakePlayer(serverLevel, new GameProfile(BLOCK_BREAKER, "create_block_helper_destroy"));
+			if (fakePlayer == null) fakePlayer = new FakePlayer(serverLevel, BLOCK_BREAKER_PROFILE);
+			player = fakePlayer;
 		}
 
 		BlockEvent.BreakEvent event = new BlockEvent.BreakEvent(world, pos, state, player);
